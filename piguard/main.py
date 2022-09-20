@@ -6,6 +6,7 @@ import random
 import os
 import sys
 import json
+from glob import glob
 
 from termcolor import cprint
 
@@ -183,6 +184,7 @@ def parse_args():
             "enable",
             "disable",
             "print-client",
+            "status"
         ),
         help="Which action?",
     )
@@ -202,12 +204,41 @@ def sanity():
                 "echo net.ipv4.ip_forward=1 | sudo tee -a /etc/sysctl.conf", shell=True
             )
 
+def get_clients_json(args):
+    clients = {}
+
+    for client in glob(f"{CLIENTS_DIR}/*.json"):
+        with open(client, "r") as f:
+            client_name = os.path.basename(client).split(".")[0]
+            clients[client_name] = json.loads(f.read())
+    
+    return clients
+
 def print_client(args):
     target = input("Print config for which client: ")
     config_path = os.path.join(CLIENTS_DIR, target + ".conf")
     subprocess.call(["cat", config_path])
     subprocess.call(["qrencode", "-t", "utf8", "-r", config_path])
 
+def print_status(args):
+    server_config = WGConfig(args.config)
+    clients = get_clients_json(args)
+
+    interface = args.config.split("/")[-1].split(".")[0]
+    out = subprocess.check_output(["wg", "show", interface]).decode()
+
+    # Loop through each line, for the lines that start with "peer: ", lookup the peer name
+    for line in out.splitlines():
+        if line.startswith("peer: "):
+            peer_key = line.split(" ")[1].strip()
+            for client_name, client_json in clients.items():
+                if client_json["public"] == peer_key:
+                    print(f"peer: {peer_key} ({client_name})")
+                    break
+            else:
+                raise Exception(f"Could not find client for peer {peer_key}")
+        else:
+            print(line)
 
 def main():
 
@@ -277,6 +308,9 @@ def main():
 
     elif args.action == "print-client":
         print_client(args)
+    
+    elif args.action == "status":
+        print_status(args)
 
 
 # TODO: Don't assume eth0
