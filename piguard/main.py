@@ -9,6 +9,8 @@ import json
 from glob import glob
 
 from termcolor import cprint
+from rich import print, box
+from rich.table import Table
 
 from .install import install, SERVER_PRIVATE_KEY, SERVER_PUBLIC_KEY
 from .wgconfig import WGConfig
@@ -220,6 +222,80 @@ def print_client(args):
     subprocess.call(["cat", config_path])
     subprocess.call(["qrencode", "-t", "utf8", "-r", config_path])
 
+def print_status_rich(args):
+
+    def _print_status():
+        # Determine union of thing keys
+        keys = set()
+        for item in info:
+            keys.update(item.keys())
+        
+        # Order keys
+        keys = sorted(keys)
+
+        if "name" in keys:
+            keys.remove("name")
+            keys.insert(0, "name")
+        
+        if "private key" in keys:
+            keys.remove("private key")
+
+        # Add keys to table
+        for key in keys:
+            table.add_column(key, justify="left")#, style=RICH_TABLE_COLORS_ORDER[keys.index(key) % len(RICH_TABLE_COLORS_ORDER)])
+
+        # Add rows to table
+        for item in info:
+            table.add_row(*[item.get(key, "") for key in keys])
+
+        print(table)
+
+
+    server_config = WGConfig(args.config)
+    clients = get_clients_json(args)
+
+    interface = args.config.split("/")[-1].split(".")[0]
+    out = subprocess.check_output(["wg", "show", interface]).decode()
+
+    is_interface = False
+    info = []
+    thing = {}
+
+    for line in out.splitlines():
+        if line.startswith("interface: "):
+            is_interface = True
+            table = Table(title="Interface: " + line.split(": ")[1], box=box.SIMPLE_HEAD)
+            continue
+        
+        if line.startswith("peer: "):
+            if is_interface:
+                info.append(thing)
+                thing = {}
+                _print_status()
+                is_interface = False
+
+            if thing:
+                info.append(thing)
+                thing = {}
+            
+            else:
+                table = Table(title="Peer list", box=box.SIMPLE_HEAD, row_styles=["", "dim"])
+
+            public_key = line.split(": ")[1].strip()
+            peer_name = next(name for name, client in clients.items() if client["public"] == public_key)
+            thing["name"] = peer_name
+            thing["public key"] = public_key
+        
+        if line.startswith("\t") or line.startswith(" "):
+            key, value = line.split(": ")
+            thing[key.strip()] = value.strip()
+
+    if thing:
+        info.append(thing)
+        _print_status()
+
+
+
 def print_status(args):
     server_config = WGConfig(args.config)
     clients = get_clients_json(args)
@@ -310,7 +386,7 @@ def main():
         print_client(args)
     
     elif args.action == "status":
-        print_status(args)
+        print_status_rich(args)
 
 
 # TODO: Don't assume eth0
@@ -319,6 +395,7 @@ DEFAULT_WGCONF = "/etc/wireguard/wg0.conf"
 DEFAULT_POSTUP = "iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE"
 DEFAULT_POSTDOWN = "iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE"
 
+RICH_TABLE_COLORS_ORDER = ['cyan', 'magenta', 'turquoise2', 'blue']
 
 if __name__ == "__main__":
     main()

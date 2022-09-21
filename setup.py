@@ -29,7 +29,7 @@ setup(
     ],
     keywords='pi wireguard',
     packages=find_packages(exclude=['contrib', 'docs', 'tests']),
-    install_requires=['prettytable', 'termcolor'],
+    install_requires=['prettytable', 'termcolor', 'rich'],
     entry_points={
         'console_scripts': [
             'piguard = piguard.main:main',
